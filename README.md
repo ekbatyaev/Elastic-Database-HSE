@@ -8,7 +8,7 @@
 - Applies a **cross-encoder model** to **rerank** top results, improving precision and relevance.
 - **Smart Splitter** – advanced text chunking with semantic awareness for better embedding quality. 
 - Combines **fast vector retrieval** with **accurate deep reranking**, suitable for intelligent document and knowledge-base search.
-- 
+  
 ## 📂 Structure
 
 <img width="520" height="214" alt="изображение" src="https://github.com/user-attachments/assets/5ab21e56-6770-47fc-a002-821ebce456a3" />
