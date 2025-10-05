@@ -1,0 +1,35 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.20
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "PORT_IN:PORT_TO"
+    healthcheck:
+      test: curl -s http://localhost:PORT|| exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: ./app
+    container_name: document_indexer_api
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./document_database:/app/document_database
+      - ./meta_new.xlsx:/app/meta_new.xlsx
+      - ./app/.env:/app/.env
+    ports:
+      - "PORT_IN:PORT_TO"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

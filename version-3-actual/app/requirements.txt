@@ -1,0 +1,13 @@
+pymupdf
+python-docx                  # для чтения .docx
+pandas
+elasticsearch>=7.13.0
+aiohttp>=3.9.0               # если используется sentence-transformers через async
+tqdm                         # для sentence-transformers
+sentence-transformers
+scikit-learn
+numpy
+openpyxl                    # для чтения .xlsx файлов в pandas
+fastapi
+uvicorn       # для запуска FastAPI-сервера
+spacy
