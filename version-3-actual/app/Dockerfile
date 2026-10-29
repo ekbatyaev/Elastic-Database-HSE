@@ -8,7 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgl1 \
     libglib2.0-0 \
-    # Для pymupdf (fitz)
     libmupdf-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,11 +19,11 @@ COPY requirements.txt .
 # Устанавливаем Python-зависимости
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Устанавливаем модель spaCy (более надежный метод)
+# Устанавливаем модель spaCy
 RUN python -m spacy download ru_core_news_sm && \
     python -m spacy validate
 
-# Копируем весь код за один раз
+# Копируем весь код
 COPY . .
 
 # Запуск FastAPI-приложения

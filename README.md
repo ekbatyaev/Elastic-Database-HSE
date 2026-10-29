@@ -30,3 +30,21 @@ pip install -r requirements.txt
 
 ```
 
+## Web interface (UI)
+
+A lightweight web interface for managing the document database. It is a single static file, `index.html` (plain HTML/CSS/JavaScript, no frameworks, no build step), that talks to the FastAPI backend over HTTP.
+
+### Features
+
+- **Vertical list** of all documents with title, tags, creation date and last-modified date.
+- **Search** by keywords and by meaning (the existing hybrid search + reranker). Documents are also matched by title, including different word endings (e.g. "сессия" finds "Расписание сессии").
+- **Filters** by education level, campus and tags (multiple tags allowed).
+- **Sorting** by creation date, modification date or title.
+- **View** a document with its full text and source link.
+- **Add**, **edit** and **delete** documents. Education level, campus and tags are chosen from drop-down lists; new tags can be entered via "Other…".
+
+### How to run
+
+1. Start the backend (see Setup above). It listens on `http://localhost:8000`.
+2. Open `index.html` in a browser.
+3. Click "настройки подключения" (connection settings) and enter the API address (default `http://localhost:8000`) and the token (`SECRET_TOKEN` from `const_variables.py`). The values are stored in the browser's `localStorage`.

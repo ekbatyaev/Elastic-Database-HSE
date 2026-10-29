@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Документы ВУЗа — управление</title>
+<style>
+  :root {
+    --bg: #faf9f6;
+    --panel: #ffffff;
+    --border: #e0ddd5;
+    --text: #1c1c1a;
+    --text-muted: #6b6b64;
+    --accent: #2c4a6e;
+    --accent-hover: #1f374f;
+    --danger: #a13f3f;
+    --danger-hover: #7f2f2f;
+    --tag-bg: #eef1f4;
+    --radius: 6px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 24px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .settings-toggle {
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+
+  .settings-panel {
+    max-width: 900px;
+    margin: 12px auto 0;
+    padding: 12px 16px;
+    background: var(--tag-bg);
+    border-radius: var(--radius);
+    display: none;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .settings-panel.open { display: flex; }
+  .settings-panel label { font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; }
+  .settings-panel input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; width: 200px; }
+
+  main {
+    max-width: 900px;
+    margin: 24px auto;
+    padding: 0 24px 60px;
+  }
+
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .toolbar input[type="text"] {
+    flex: 1;
+    min-width: 200px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 14px;
+    background: var(--panel);
+  }
+  .toolbar input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  button {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-secondary { background: var(--panel); color: var(--text); border-color: var(--border); }
+  .btn-secondary:hover { background: var(--tag-bg); }
+  .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .btn-small { padding: 6px 10px; font-size: 13px; }
+
+  #status-line {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+    min-height: 18px;
+  }
+  #status-line.error { color: var(--danger); }
+
+  /* Панель фильтров и сортировки */
+  .filters {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .filters label, .filter-group { font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; }
+  .filters select {
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+    background: var(--panel);
+    font-family: inherit;
+    min-width: 150px;
+  }
+  .tag-filter { position: relative; }
+  .tag-filter summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+    min-width: 150px;
+    background: var(--panel);
+  }
+  .tag-filter summary::-webkit-details-marker { display: none; }
+  .tag-filter summary::after { content: " ▾"; color: var(--text-muted); }
+  .tag-options {
+    position: absolute;
+    z-index: 20;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    min-width: 240px;
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  }
+  .tag-opt { display: flex !important; flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 13px !important; color: var(--text) !important; padding: 3px 0; cursor: pointer; }
+
+  /* Выпадающие списки с галочками внутри формы добавления/редактирования */
+  .multi-dd summary { width: 100%; }
+  .multi-dd .tag-options { position: static; box-shadow: none; max-height: 200px; margin-top: 4px; }
+  .field input[type="checkbox"] { width: auto; padding: 0; border: none; margin: 0; }
+  .field .tag-opt { font-weight: 400; margin-bottom: 0; }
+  #f_tag_other { margin-top: 8px; display: none; }
+
+  /* Вертикальный список документов */
+  .doc-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .doc-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+
+  .doc-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .doc-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    cursor: pointer;
+  }
+  .doc-title:hover { color: var(--accent); }
+
+  .doc-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 8px;
+  }
+
+  .tag {
+    display: inline-block;
+    background: var(--tag-bg);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .doc-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .snippet {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+  .snippet mark { background: #fdf0b8; padding: 0 2px; }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  /* Модальные окна */
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 20, 18, 0.45);
+    z-index: 100;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+  .overlay.open { display: flex; }
+
+  .modal {
+    background: var(--panel);
+    border-radius: 8px;
+    max-width: 640px;
+    width: 100%;
+    padding: 24px 28px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .modal-header h2 { font-size: 17px; margin: 0; }
+  .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-muted); padding: 0 4px; }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 5px; }
+  .field input, .field textarea {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 14px;
+  }
+  .field textarea { resize: vertical; min-height: 90px; }
+  .field-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  .doc-fulltext {
+    white-space: pre-wrap;
+    font-size: 13.5px;
+    background: var(--tag-bg);
+    padding: 14px;
+    border-radius: 4px;
+    max-height: 340px;
+    overflow-y: auto;
+    margin-top: 4px;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <h1>Документы ВУЗа</h1>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <button class="settings-toggle" id="settingsToggle" type="button">настройки подключения</button>
+      <button class="btn-primary btn-small" id="openAddBtn" type="button">+ Добавить документ</button>
+    </div>
+  </div>
+  <div class="settings-panel" id="settingsPanel">
+    <label>Адрес API
+      <input type="text" id="apiBase" placeholder="http://localhost:8000">
+    </label>
+    <label>Токен
+      <input type="text" id="apiToken" placeholder="секретный токен">
+    </label>
+    <button class="btn-secondary btn-small" id="saveSettingsBtn" type="button" style="align-self:flex-end;">Сохранить</button>
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="Поиск по смыслу и ключевым словам…">
+    <button class="btn-primary" id="searchBtn" type="button">Искать</button>
+    <button class="btn-secondary" id="resetBtn" type="button">Показать все</button>
+  </div>
+
+  <div class="filters">
+    <label>Уровень образования
+      <select id="filterEdu">
+        <option value="">Любой</option>
+        <option value="бакалавриат">Бакалавриат</option>
+        <option value="специалитет">Специалитет</option>
+        <option value="магистратура">Магистратура</option>
+      </select>
+    </label>
+    <label>Кампус
+      <select id="filterCampus">
+        <option value="">Любой</option>
+        <option value="Москва">Москва</option>
+        <option value="Санкт-Петербург">Санкт-Петербург</option>
+        <option value="Нижний Новгород">Нижний Новгород</option>
+        <option value="Пермь">Пермь</option>
+      </select>
+    </label>
+    <div class="filter-group">
+      <span class="filter-label">Теги</span>
+      <details class="tag-filter" id="tagFilter">
+        <summary id="tagSummary">Любые</summary>
+        <div class="tag-options" id="tagOptions"></div>
+      </details>
+    </div>
+    <label>Сортировка
+      <select id="sortSelect">
+        <option value="default">По умолчанию (при поиске — по релевантности)</option>
+        <option value="created_desc">Дата добавления: сначала новые</option>
+        <option value="created_asc">Дата добавления: сначала старые</option>
+        <option value="updated_desc">Дата изменения: сначала новые</option>
+        <option value="updated_asc">Дата изменения: сначала старые</option>
+        <option value="name_asc">Название: А → Я</option>
+        <option value="name_desc">Название: Я → А</option>
+      </select>
+    </label>
+    <button class="btn-secondary btn-small" id="resetFiltersBtn" type="button">Сбросить фильтры</button>
+  </div>
+
+  <div id="status-line"></div>
+
+  <div class="doc-list" id="docList"></div>
+</main>
+
+<!-- Модалка просмотра -->
+<div class="overlay" id="viewOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="viewTitle">Документ</h2>
+      <button class="modal-close" data-close="viewOverlay" type="button">✕</button>
+    </div>
+    <div id="viewBody"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" data-close="viewOverlay" type="button">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка добавления/редактирования -->
+<div class="overlay" id="addOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="addModalTitle">Новый документ</h2>
+      <button class="modal-close" data-close="addOverlay" type="button">✕</button>
+    </div>
+    <div class="field">
+      <label>Название файла</label>
+      <input type="text" id="f_file_name" placeholder="polozhenie_o_praktike.pdf">
+    </div>
+    <div class="field">
+      <label>Уровень образования</label>
+      <details class="tag-filter multi-dd" id="dd_edu">
+        <summary id="sum_edu">Не выбрано</summary>
+        <div class="tag-options" id="opts_edu"></div>
+      </details>
+    </div>
+    <div class="field">
+      <label>Кампус</label>
+      <details class="tag-filter multi-dd" id="dd_campus">
+        <summary id="sum_campus">Не выбрано</summary>
+        <div class="tag-options" id="opts_campus"></div>
+      </details>
+    </div>
+    <div class="field">
+      <label>Теги</label>
+      <details class="tag-filter multi-dd" id="dd_tags">
+        <summary id="sum_tags">Не выбрано</summary>
+        <div class="tag-options" id="opts_tags"></div>
+      </details>
+      <input type="text" id="f_tag_other" placeholder="Свои теги через запятую, например: Стипендии, Общежитие">
+      <div class="field-hint">Выберите готовые теги или отметьте «Другое…» и впишите свои.</div>
+    </div>
+    <div class="field">
+      <label>Ссылка на источник</label>
+      <input type="text" id="f_url" placeholder="https://...">
+    </div>
+    <div class="field">
+      <label>Текст документа</label>
+      <textarea id="f_full_text" placeholder="Полный текст документа…"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" data-close="addOverlay" type="button">Отмена</button>
+      <button class="btn-primary" id="submitAddBtn" type="button">Добавить</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function getApiBase() { return localStorage.getItem('doc_api_base') || 'http://localhost:8000'; }
+  function getToken() { return localStorage.getItem('doc_api_token') || ''; }
+
+  $('apiBase').value = getApiBase();
+  $('apiToken').value = getToken();
+
+  $('settingsToggle').addEventListener('click', () => {
+    $('settingsPanel').classList.toggle('open');
+  });
+  $('saveSettingsBtn').addEventListener('click', () => {
+    localStorage.setItem('doc_api_base', $('apiBase').value.trim() || 'http://localhost:8000');
+    localStorage.setItem('doc_api_token', $('apiToken').value.trim());
+    $('settingsPanel').classList.remove('open');
+    loadDocuments();
+  });
+
+  function setStatus(text, isError) {
+    const el = $('status-line');
+    el.textContent = text || '';
+    el.className = isError ? 'error' : '';
+  }
+
+  async function apiFetch(path, options = {}) {
+    const base = getApiBase();
+    const headers = Object.assign({ 'Content-Type': 'application/json', 'token': getToken() }, options.headers || {});
+    const res = await fetch(base + path, Object.assign({}, options, { headers }));
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { const j = await res.json(); detail = j.detail || JSON.stringify(j); } catch (e) {}
+      throw new Error(`${res.status}: ${detail}`);
+    }
+    return res.json();
+  }
+
+  // Даты без указания часового пояса (у старых документов) хранятся в UTC,
+  // поэтому добавляем "Z", чтобы браузер правильно показал время по Москве.
+  function parseDate(iso) {
+    if (!iso) return null;
+    let s = String(iso);
+    if (!/[zZ]$|[+-]\d\d:\d\d$/.test(s)) s += 'Z';
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    try {
+      const d = parseDate(iso) || new Date(iso);
+      return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return iso; }
+  }
+
+  function tagsHtml(list) {
+    if (!list || !list.length) return '';
+    return list.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join(' ');
+  }
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  function renderList(docs, opts = {}) {
+    const container = $('docList');
+    if (!docs || docs.length === 0) {
+      container.innerHTML = '<div class="empty-state">Документов не найдено.</div>';
+      return;
+    }
+    container.innerHTML = '';
+    docs.forEach(doc => {
+      const card = document.createElement('div');
+      card.className = 'doc-card';
+
+      const snippetHtml = (opts.isSearch && doc.chunks && doc.chunks[0])
+        ? `<div class="snippet">${doc.chunks[0].text}</div>`
+        : '';
+
+      card.innerHTML = `
+        <div class="doc-card-top">
+          <div style="flex:1; min-width:0;">
+            <h3 class="doc-title">${escapeHtml(doc.file_name || 'Без названия')}</h3>
+            <div class="doc-meta">
+              <span>Добавлен: ${formatDate(doc.created_at)}</span>
+              <span>Изменён: ${formatDate(doc.updated_at)}</span>
+            </div>
+            <div class="doc-meta">${tagsHtml(doc.topic_tag || doc.tags)}</div>
+            ${snippetHtml}
+          </div>
+          <div class="doc-actions">
+            <button class="btn-secondary btn-small view-btn" type="button">Открыть</button>
+            <button class="btn-secondary btn-small edit-btn" type="button">Редактировать</button>
+            <button class="btn-danger btn-small delete-btn" type="button">Удалить</button>
+          </div>
+        </div>
+      `;
+      card.querySelector('.doc-title').addEventListener('click', () => openView(doc.doc_id));
+      card.querySelector('.view-btn').addEventListener('click', () => openView(doc.doc_id));
+      card.querySelector('.edit-btn').addEventListener('click', () => openEdit(doc.doc_id));
+      card.querySelector('.delete-btn').addEventListener('click', () => deleteDoc(doc.doc_id, doc.file_name));
+      container.appendChild(card);
+    });
+  }
+
+  // ----- Фильтры и сортировка -----
+  let lastDocs = [];            // последний полученный список (чтобы пересортировать без нового запроса)
+  let lastOpts = { isSearch: false };
+
+  function getFilters() {
+    const tags = Array.from(document.querySelectorAll('#tagOptions input:checked')).map(i => i.value);
+    return { edu_level: $('filterEdu').value, campus: $('filterCampus').value, topic_tag: tags };
+  }
+
+  function hasFilters() {
+    const f = getFilters();
+    return !!(f.edu_level || f.campus || f.topic_tag.length);
+  }
+
+  function sortDocs(docs) {
+    const mode = $('sortSelect').value;
+    if (mode === 'default') return docs;
+    const time = (v) => { const d = parseDate(v); return d ? d.getTime() : 0; };
+    const cmp = {
+      created_desc: (a, b) => time(b.created_at) - time(a.created_at),
+      created_asc:  (a, b) => time(a.created_at) - time(b.created_at),
+      updated_desc: (a, b) => time(b.updated_at) - time(a.updated_at),
+      updated_asc:  (a, b) => time(a.updated_at) - time(b.updated_at),
+      name_asc:  (a, b) => (a.file_name || '').localeCompare(b.file_name || '', 'ru', { numeric: true, sensitivity: 'base' }),
+      name_desc: (a, b) => (b.file_name || '').localeCompare(a.file_name || '', 'ru', { numeric: true, sensitivity: 'base' })
+    }[mode];
+    return docs.slice().sort(cmp);
+  }
+
+  function showDocs(docs, opts) {
+    lastDocs = docs || [];
+    lastOpts = opts || { isSearch: false };
+    renderList(sortDocs(lastDocs), lastOpts);
+  }
+
+  function updateTagSummary() {
+    const n = getFilters().topic_tag.length;
+    $('tagSummary').textContent = n ? `Выбрано: ${n}` : 'Любые';
+  }
+
+  async function loadTags() {
+    try {
+      const data = await apiFetch('/tags');
+      const selected = new Set(getFilters().topic_tag);
+      $('tagOptions').innerHTML = data.tags.length
+        ? data.tags.map(t => `<label class="tag-opt"><input type="checkbox" value="${escapeHtml(t)}" ${selected.has(t) ? 'checked' : ''}> ${escapeHtml(t)}</label>`).join('')
+        : '<span class="field-hint">Тегов пока нет</span>';
+      updateTagSummary();
+    } catch (e) { /* список тегов не критичен: страница работает и без него */ }
+  }
+
+  async function loadDocuments() {
+    setStatus('Загрузка списка документов…');
+    try {
+      const f = getFilters();
+      const params = new URLSearchParams();
+      if (f.edu_level) params.append('edu_level', f.edu_level);
+      if (f.campus) params.append('campus', f.campus);
+      f.topic_tag.forEach(t => params.append('topic_tag', t));
+      const qs = params.toString();
+      const data = await apiFetch('/documents' + (qs ? '?' + qs : ''));
+      showDocs(data.documents, { isSearch: false });
+      setStatus(hasFilters() ? `Документов по фильтрам: ${data.total}` : `Всего документов: ${data.total}`);
+      loadTags();
+    } catch (e) {
+      setStatus('Ошибка загрузки: ' + e.message, true);
+      showDocs([], { isSearch: false });
+    }
+  }
+
+  async function runSearch() {
+    const query = $('searchInput').value.trim();
+    if (!query) { loadDocuments(); return; }
+    setStatus('Поиск…');
+    try {
+      const f = getFilters();
+      const payload = { query, count_doc_return: 10, count_doc_rerank: 50, fragment_size: 200 };
+      if (f.edu_level) payload.edu_level = f.edu_level;
+      if (f.campus) payload.campus = f.campus;
+      if (f.topic_tag.length) payload.topic_tag = f.topic_tag;
+      const results = await apiFetch('/search', { method: 'POST', body: JSON.stringify(payload) });
+      showDocs(results, { isSearch: true });
+      setStatus(`Найдено документов: ${results.length}`);
+    } catch (e) {
+      setStatus('Ошибка поиска: ' + e.message, true);
+    }
+  }
+
+  $('searchBtn').addEventListener('click', runSearch);
+  $('searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+  $('resetBtn').addEventListener('click', () => { $('searchInput').value = ''; loadDocuments(); });
+
+  // Любое изменение фильтра заново запрашивает данные (поиск или список), сортировка работает на месте
+  $('filterEdu').addEventListener('change', runSearch);
+  $('filterCampus').addEventListener('change', runSearch);
+  $('tagOptions').addEventListener('change', () => { updateTagSummary(); runSearch(); });
+  // Выпадающий список тегов закрывается кликом в любое другое место страницы
+  document.addEventListener('click', (e) => {
+    document.querySelectorAll('details.tag-filter[open]').forEach(d => {
+      if (!d.contains(e.target)) d.open = false;
+    });
+  });
+  $('sortSelect').addEventListener('change', () => renderList(sortDocs(lastDocs), lastOpts));
+  $('resetFiltersBtn').addEventListener('click', () => {
+    $('filterEdu').value = '';
+    $('filterCampus').value = '';
+    document.querySelectorAll('#tagOptions input').forEach(i => i.checked = false);
+    $('sortSelect').value = 'default';
+    updateTagSummary();
+    runSearch();
+  });
+
+  async function openView(docId) {
+    $('viewOverlay').classList.add('open');
+    $('viewTitle').textContent = 'Загрузка…';
+    $('viewBody').innerHTML = '';
+    try {
+      const doc = await apiFetch('/documents/' + encodeURIComponent(docId));
+      $('viewTitle').textContent = doc.file_name || 'Документ';
+      $('viewBody').innerHTML = `
+        <div class="doc-meta" style="margin-bottom:10px;">
+          <span>Добавлен: ${formatDate(doc.created_at)}</span>
+          <span>Изменён: ${formatDate(doc.updated_at)}</span>
+        </div>
+        <div class="doc-meta" style="margin-bottom:14px;">${tagsHtml(doc.topic_tag)}</div>
+        ${doc.url ? `<div class="field-hint">Ссылка: <a href="${escapeHtml(doc.url)}" target="_blank" rel="noopener">${escapeHtml(doc.url)}</a></div>` : ''}
+        <div class="doc-fulltext">${escapeHtml(doc.full_text || '(текст отсутствует)')}</div>
+      `;
+    } catch (e) {
+      $('viewTitle').textContent = 'Ошибка';
+      $('viewBody').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  async function deleteDoc(docId, fileName) {
+    if (!confirm(`Удалить документ «${fileName}»? Это действие необратимо.`)) return;
+    setStatus('Удаление…');
+    try {
+      await apiFetch('/documents/' + encodeURIComponent(docId), { method: 'DELETE' });
+      setStatus('Документ удалён.');
+      loadDocuments();
+    } catch (e) {
+      setStatus('Ошибка удаления: ' + e.message, true);
+    }
+  }
+
+  document.querySelectorAll('[data-close]').forEach(btn => {
+    btn.addEventListener('click', () => $(btn.dataset.close).classList.remove('open'));
+  });
+  document.querySelectorAll('.overlay').forEach(ov => {
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.remove('open'); });
+  });
+
+  let currentEditId = null;
+
+  // Допустимые значения для выпадающих списков формы
+  const EDU_LEVELS = [
+    { value: 'бакалавриат', label: 'Бакалавриат' },
+    { value: 'специалитет', label: 'Специалитет' },
+    { value: 'магистратура', label: 'Магистратура' }
+  ];
+  const CAMPUSES = ['Москва', 'Санкт-Петербург', 'Нижний Новгород', 'Пермь']
+    .map(c => ({ value: c, label: c }));
+
+  // Рисует список галочек; selected — что отметить (регистр не важен)
+  function renderChecks(containerId, items, selected) {
+    const sel = new Set((selected || []).map(v => String(v).trim().toLowerCase()));
+    $(containerId).innerHTML = items.map(it =>
+      `<label class="tag-opt"><input type="checkbox" value="${escapeHtml(it.value)}" ${sel.has(it.value.toLowerCase()) ? 'checked' : ''}> ${escapeHtml(it.label)}</label>`
+    ).join('');
+  }
+
+  // Возвращает отмеченные значения (галочку «Другое…» пропускаем — у неё data-skip)
+  function checkedValues(containerId) {
+    return Array.from(document.querySelectorAll(`#${containerId} input[type=checkbox]:checked:not([data-skip])`))
+      .map(i => i.value);
+  }
+
+  function updateFormSummaries() {
+    const show = (sumId, contId, extra) => {
+      const v = checkedValues(contId).concat(extra || []);
+      $(sumId).textContent = v.length ? v.join(', ') : 'Не выбрано';
+    };
+    show('sum_edu', 'opts_edu');
+    show('sum_campus', 'opts_campus');
+    show('sum_tags', 'opts_tags', $('tagOtherCb') && $('tagOtherCb').checked ? ['Другое…'] : []);
+    $('f_tag_other').style.display = ($('tagOtherCb') && $('tagOtherCb').checked) ? 'block' : 'none';
+  }
+
+  // Готовит три выпадающих списка формы. doc = null для нового документа.
+  async function prepareFormControls(doc) {
+    let allTags = [];
+    try { allTags = (await apiFetch('/tags')).tags || []; } catch (e) { /* без списка тегов можно пользоваться «Другое…» */ }
+
+    const docTags = (doc && doc.topic_tag) || [];
+    // теги документа, которых нет в списке из базы, переносим в поле «Другое…»
+    const known = new Set(allTags.map(t => t.toLowerCase()));
+    const unknownTags = docTags.filter(t => !known.has(String(t).toLowerCase()));
+
+    renderChecks('opts_edu', EDU_LEVELS, doc ? doc.edu_level : []);
+    renderChecks('opts_campus', CAMPUSES, doc ? doc.campus : []);
+    renderChecks('opts_tags', allTags.map(t => ({ value: t, label: t })), docTags);
+
+    $('opts_tags').insertAdjacentHTML('beforeend',
+      `<label class="tag-opt"><input type="checkbox" id="tagOtherCb" data-skip="1" ${unknownTags.length ? 'checked' : ''}> Другое…</label>`);
+    $('f_tag_other').value = unknownTags.join(', ');
+    updateFormSummaries();
+  }
+
+  ['opts_edu', 'opts_campus', 'opts_tags'].forEach(id => $(id).addEventListener('change', updateFormSummaries));
+
+  $('openAddBtn').addEventListener('click', async () => {
+    currentEditId = null;
+    ['f_file_name','f_url','f_full_text'].forEach(id => $(id).value = '');
+    await prepareFormControls(null);
+    $('addModalTitle').textContent = 'Новый документ';
+    $('submitAddBtn').textContent = 'Добавить';
+    $('addOverlay').classList.add('open');
+  });
+
+  async function openEdit(docId) {
+    setStatus('Загрузка документа для редактирования…');
+    try {
+      const doc = await apiFetch('/documents/' + encodeURIComponent(docId));
+      currentEditId = docId;
+      $('f_file_name').value = doc.file_name || '';
+      await prepareFormControls(doc);
+      $('f_url').value = doc.url || '';
+      $('f_full_text').value = doc.full_text || '';
+      $('addModalTitle').textContent = 'Редактирование документа';
+      $('submitAddBtn').textContent = 'Сохранить';
+      $('addOverlay').classList.add('open');
+      setStatus('');
+    } catch (e) {
+      setStatus('Ошибка загрузки документа: ' + e.message, true);
+    }
+  }
+
+  function splitList(str) {
+    return str.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  $('submitAddBtn').addEventListener('click', async () => {
+    const fileName = $('f_file_name').value.trim();
+    const fullText = $('f_full_text').value.trim();
+    if (!fileName || !fullText) {
+      alert('Заполните хотя бы название файла и текст документа.');
+      return;
+    }
+    const eduLevels = checkedValues('opts_edu');
+    const campuses = checkedValues('opts_campus');
+    if (!eduLevels.length || !campuses.length) {
+      alert('Выберите хотя бы один уровень образования и один кампус.');
+      return;
+    }
+    // теги: отмеченные в списке + свои из поля «Другое…» (без повторов)
+    let tags = checkedValues('opts_tags');
+    if ($('tagOtherCb') && $('tagOtherCb').checked) tags = tags.concat(splitList($('f_tag_other').value));
+    tags = Array.from(new Set(tags));
+
+    const payload = {
+      file_name: fileName,
+      edu_level: eduLevels,
+      campus: campuses,
+      topic_tag: tags,
+      url: $('f_url').value.trim(),
+      full_text: fullText,
+      doc_source: 'admin_ui'
+    };
+
+    if (currentEditId) {
+      setStatus('Сохранение изменений…');
+      try {
+        await apiFetch('/documents/' + encodeURIComponent(currentEditId), { method: 'PUT', body: JSON.stringify(payload) });
+        $('addOverlay').classList.remove('open');
+        setStatus('Документ обновлён: ' + fileName);
+        currentEditId = null;
+        loadDocuments();
+      } catch (e) {
+        setStatus('Ошибка сохранения: ' + e.message, true);
+      }
+      return;
+    }
+
+    payload.doc_id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+    setStatus('Добавление документа…');
+    try {
+      const result = await apiFetch('/add_doc', { method: 'POST', body: JSON.stringify(payload) });
+      if (result.added) {
+        $('addOverlay').classList.remove('open');
+        setStatus('Документ добавлен: ' + result.file_name);
+        loadDocuments();
+      } else {
+        setStatus('Не удалось добавить документ.', true);
+      }
+    } catch (e) {
+      setStatus('Ошибка добавления: ' + e.message, true);
+    }
+  });
+
+  loadDocuments();
+</script>
+</body>
+</html>

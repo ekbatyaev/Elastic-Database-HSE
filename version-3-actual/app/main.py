@@ -2,6 +2,7 @@ import os
 import logging
 import traceback
 from datetime import datetime
+from datetime import timezone, timedelta
 from pathlib import Path
 import re
 from typing import Tuple
@@ -9,9 +10,11 @@ import fitz
 import uvicorn
 import pandas as pd
 import json
+import numpy as np
 
 from elasticsearch.helpers import bulk
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from docx import Document
 from elasticsearch import Elasticsearch
@@ -36,6 +39,14 @@ nlp = spacy.load("ru_core_news_sm")
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class SearchRequest(BaseModel):
     query: str
@@ -55,6 +66,7 @@ class AddRequest(BaseModel):
     topic_tag: list[str]
     url: str
     full_text: str
+    doc_source: str = ""
 
 class DeleteRequest(BaseModel):
     file_name: str
@@ -76,7 +88,7 @@ def get_es_client(token: str):
     try:
         es_client = Elasticsearch(
             ELASTICSEARCH_URL,
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"}, timeout=60
         )
         if not es_client.ping():
             raise ConnectionError("Failed to connect to Elasticsearch")
@@ -102,7 +114,10 @@ def create_indices(es: Elasticsearch):
                             "campus": {"type": "keyword"},
                             "topic_tag": {"type": "keyword"},
                             "url": {"type": "text"},
-                            "full_text": {"type": "text"}
+                            "full_text": {"type": "text"},
+                            "doc_source": {"type": "keyword"},
+                            "created_at": {"type": "date"},
+                            "updated_at": {"type": "date"}
                         }
                     }
                 }
@@ -538,6 +553,15 @@ def semantic_split_text(text: str, max_length: int, min_chunk_len: int) -> List[
 def indexes_creation(es, doc_id, file_name, edu_level,
                      campus, tags, url, full_text, doc_source):
     # Индексация родительского документа
+    now = datetime.now(timezone(timedelta(hours=3))).isoformat(timespec="seconds")
+    created_at = now
+    # Если документ уже существует — сохраняем его первоначальную дату создания
+    try:
+        old_doc = es.get(index=PARENT_INDEX, id=doc_id)
+        created_at = old_doc["_source"].get("created_at", now)
+    except Exception:
+        pass
+
     try:
         es.index(
             index=PARENT_INDEX,
@@ -549,9 +573,12 @@ def indexes_creation(es, doc_id, file_name, edu_level,
                 "topic_tag": tags,
                 "url": url,
                 "full_text": full_text,
-                "doc_source": doc_source
+                "doc_source": doc_source,
+                "created_at": created_at,
+                "updated_at": now
             }
         )
+
         logger.debug(f"Родительский документ {file_name} проиндексирован")
     except Exception as e:
         logger.error(f"Ошибка индексации родительского документа {file_name}: {e}")
@@ -664,6 +691,121 @@ async def startup():
         raise RuntimeError("Application initialization failed")
 
 
+def as_list(value):
+    """Приводит значение к списку (в базе поле может быть строкой или списком)."""
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+# Поиск по названию
+# Порог смыслового сходства запроса и названия (от 0 до 1).
+# Если находится лишнее, увеличивайте (0.85). Если не находится нужное, уменьшайте (0.78).
+NAME_SEM_THRESHOLD = 0.82
+
+# Кэш векторов названий: {doc_id: (название, вектор)}, чтобы не считать их при каждом поиске
+_name_emb_cache = {}
+
+
+def clean_name(name: str) -> str:
+    """'Расписание_сессии.docx' -> 'Расписание сессии'"""
+    name = re.sub(r"\.(docx?|txt|pdf)$", "", name or "", flags=re.I)
+    return re.sub(r"[_\-]+", " ", name).strip()
+
+
+def word_stems(text: str):
+    """Грубая основа слова: отрезаем окончание (сессия и сессии -> сесс)."""
+    stems = []
+    for w in re.findall(r"\w+", text.lower()):
+        if len(w) >= 6:
+            stems.append(w[:-2])
+        elif len(w) >= 4:
+            stems.append(w[:-1])
+        else:
+            stems.append(w)
+    return stems
+
+
+def name_matches_by_words(query: str, name: str) -> bool:
+    """Все слова запроса (по основам) должны найтись в начале каких-то слов названия."""
+    name_words = re.findall(r"\w+", name.lower())
+    q_stems = word_stems(query)
+    if not q_stems:
+        return False
+    return all(any(nw.startswith(qs) for nw in name_words) for qs in q_stems)
+
+
+def prefixed_embedding(text: str, prefix: str):
+    """e5 лучше работает, если к тексту добавить 'query: ' или 'passage: '."""
+    if model is None:
+        load_model()
+    emb = model.encode(prefix + text, convert_to_numpy=True)
+    return normalize(emb.reshape(1, -1))[0]
+
+
+def name_embedding(doc_id: str, name: str):
+    cached = _name_emb_cache.get(doc_id)
+    if cached and cached[0] == name:      # название не менялось, берём из кэша
+        return cached[1]
+    vec = prefixed_embedding(name, "passage: ")
+    _name_emb_cache[doc_id] = (name, vec)
+    return vec
+
+
+def find_docs_by_name(es, req):
+    """Ищет документы по названию: сначала по словам, затем по смыслу."""
+    q = req.query.strip()
+    if len(q) < 3:
+        return []
+
+    res = es.search(index=PARENT_INDEX, body={"size": 1000, "query": {"match_all": {}}})
+    query_vec = None
+    found = []
+
+    for hit in res["hits"]["hits"]:
+        src = hit["_source"]
+        raw_name = src.get("file_name") or ""
+        name = clean_name(raw_name)
+
+        # Те же фильтры, что выбрал пользователь
+        if req.edu_level and req.edu_level not in as_list(src.get("edu_level")):
+            continue
+        if req.campus and req.campus not in as_list(src.get("campus")):
+            continue
+        if req.topic_tag and not set(req.topic_tag) & set(as_list(src.get("topic_tag"))):
+            continue
+
+        # 1) совпадение по словам (с учётом окончаний)
+        if q.lower() in raw_name.lower() or name_matches_by_words(q, name):
+            score = 1.0
+        else:
+            # 2) совпадение по смыслу
+            if query_vec is None:
+                query_vec = prefixed_embedding(q, "query: ")
+            score = float(np.dot(query_vec, name_embedding(hit["_id"], name)))
+            if score < NAME_SEM_THRESHOLD:
+                continue
+
+        full_text = src.get("full_text", "")
+        found.append({
+            "doc_id": hit["_id"],
+            "score": score,
+            "file_name": src.get("file_name"),
+            "url": src.get("url", ""),
+            "tags": src.get("topic_tag", []),
+            "chunks": [{"text": full_text[:200], "chunk_score": score, "rerank_score": score}],
+            "full_text": full_text,
+            "doc_source": src.get("doc_source", ""),
+            "created_at": src.get("created_at"),
+            "updated_at": src.get("updated_at"),
+            "rerank_score": score,
+        })
+
+    found.sort(key=lambda d: d["rerank_score"], reverse=True)
+    return found
+
+
+
 @app.post("/search")
 def search(req: SearchRequest, token: str = Header(...)):
     try:
@@ -685,6 +827,7 @@ def search(req: SearchRequest, token: str = Header(...)):
                 "query": {
                     "bool": {
                         "filter": filters,
+                        "must": [{"match_all": {}}],
                         "should": [
                             {
                                 "multi_match": {
@@ -721,7 +864,8 @@ def search(req: SearchRequest, token: str = Header(...)):
         }
 
         response = es.search(index=CHUNK_INDEX, body={
-            "size": req.count_doc_return * 10,  # Достаточно для группировки
+            #"size": req.count_doc_return * 10,  # Достаточно для группировки
+            "size": max(req.count_doc_return, req.count_doc_rerank) * 20,  # берём достаточно фрагментов, чтобы покрыть все документы для reranker'а
             "query": query,
             "highlight": {
                 "fields": {
@@ -733,7 +877,7 @@ def search(req: SearchRequest, token: str = Header(...)):
                     }
                 }
             }
-        })
+        }, timeout="100s")
 
         # Группировка чанков по документам с сохранением информации о score
         chunks_by_doc = {}
@@ -757,6 +901,9 @@ def search(req: SearchRequest, token: str = Header(...)):
 
             chunks_by_doc.setdefault(doc_id, []).append(chunk_info)
 
+        if not chunks_by_doc:
+            return []
+        
         # Получение метаданных документов
         parent_docs = es.mget(index=PARENT_INDEX, body={"ids": list(chunks_by_doc.keys())})
         doc_meta = {doc["_id"]: doc["_source"] for doc in parent_docs["docs"] if doc["found"]}
@@ -771,13 +918,16 @@ def search(req: SearchRequest, token: str = Header(...)):
             doc_score = max(chunk["chunk_score"] for chunk in chunks)
 
             results.append({
+                "doc_id": doc_id,
                 "score": round(doc_score, 4),
                 "file_name": meta.get("file_name"),
                 "url": meta.get("url", ""),
                 "tags": meta.get("topic_tag", []),
                 "chunks": chunks,
                 "full_text": meta.get("full_text", ""),
-                "doc_source": meta.get("doc_source", "")
+                "doc_source": meta.get("doc_source", ""),
+                "created_at": meta.get("created_at"),
+                "updated_at": meta.get("updated_at")
             })
 
         # Обрезаем кандидатов по score из ES
@@ -819,6 +969,22 @@ def search(req: SearchRequest, token: str = Header(...)):
 
         # Сортировка по rerank_score
         results.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
+
+
+        # Минимальная оценка reranker'а, при которой документ считается подходящим.
+        # Подобрана по тестовым запросам. Если полезные документы пропадают - уменьшайте.
+        # Если появляется мусор - увеличивайте.
+        MIN_RERANK_SCORE = 0.005
+
+        results = [
+            doc for doc in results
+            if doc.get("rerank_score", 0.0) >= MIN_RERANK_SCORE
+        ]
+
+        # Документы, найденные по названию, показываем первыми
+        by_name = find_docs_by_name(es, req)
+        name_ids = {doc["doc_id"] for doc in by_name}
+        results = by_name + [doc for doc in results if doc["doc_id"] not in name_ids]
 
         return results[:req.count_doc_return]
 
@@ -869,7 +1035,7 @@ def delete(req: DeleteRequest, token: str = Header(...)):
         }
 
         # Получить чанки (только _id)
-        res = es.search(index=CHUNK_INDEX, body=query, scroll="1m", size=1000)
+        res = es.search(index=CHUNK_INDEX, body=query, scroll="1m", size=1000, timeout="100s")
         scroll_id = res["_scroll_id"]
         hits = res["hits"]["hits"]
 
@@ -914,6 +1080,147 @@ def get_logs(req: GetLogs):
         logger.error(f"Ошибка получения логов : {e}")
         logger.debug(traceback.format_exc())
         return {"error": f"Ошибка получения логов: {e}"}
+
+
+@app.get("/documents")
+def list_documents(
+        token: str = Header(...),
+        size: int = 1000,
+        edu_level: Optional[str] = None,
+        campus: Optional[str] = None,
+        topic_tag: Optional[List[str]] = Query(None),
+):
+    """Список документов (без полного текста). Можно фильтровать по уровню образования, кампусу и тегам."""
+    try:
+        es = get_es_client(token)
+
+        filters = []
+        if edu_level:
+            filters.append({"term": {"edu_level": edu_level}})
+        if campus:
+            filters.append({"term": {"campus": campus}})
+        if topic_tag:
+            filters.append({"terms": {"topic_tag": topic_tag}})
+
+        res = es.search(
+            index=PARENT_INDEX,
+            body={
+                "query": {"bool": {"must": [{"match_all": {}}], "filter": filters}},
+                "_source": {"excludes": ["full_text"]},
+                "size": size
+            }, timeout="100s"
+        )
+        documents = []
+        for hit in res["hits"]["hits"]:
+            item = hit["_source"]
+            item["doc_id"] = hit["_id"]
+            documents.append(item)
+        return {"total": len(documents), "documents": documents}
+    except Exception as e:
+        logger.error(f"Ошибка получения списка документов: {e}")
+        logger.debug(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Ошибка получения списка документов")
+
+
+@app.get("/tags")
+def list_tags(token: str = Header(...)):
+    """Все теги, которые сейчас есть в базе (для выпадающего списка фильтра)"""
+    try:
+        es = get_es_client(token)
+        res = es.search(
+            index=PARENT_INDEX,
+            body={"size": 0, "aggs": {"tags": {"terms": {"field": "topic_tag", "size": 500}}}}, timeout="100s"
+        )
+        tags = sorted(b["key"] for b in res["aggregations"]["tags"]["buckets"])
+        return {"tags": tags}
+    except Exception as e:
+        logger.error(f"Ошибка получения тегов: {e}")
+        logger.debug(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Ошибка получения тегов")
+
+
+@app.get("/documents/{doc_id}")
+def get_document(doc_id: str, token: str = Header(...)):
+    """Получить один документ целиком по его id"""
+    es = get_es_client(token)
+    try:
+        res = es.get(index=PARENT_INDEX, id=doc_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    doc = res["_source"]
+    doc["doc_id"] = res["_id"]
+    return doc
+
+
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: str, token: str = Header(...)):
+    """Удалить документ напрямую по id (использует фронтенд)"""
+    es = get_es_client(token)
+    doc_is_deleted = False
+    try:
+        es.delete(index=PARENT_INDEX, id=doc_id)
+        doc_is_deleted = True
+    except Exception:
+        pass
+
+    query = {"query": {"term": {"doc_id": doc_id}}}
+    res = es.search(index=CHUNK_INDEX, body=query, scroll="1m", size=1000, timeout="100s")
+    scroll_id = res["_scroll_id"]
+    hits = res["hits"]["hits"]
+    to_delete = []
+    while hits:
+        for hit in hits:
+            to_delete.append({"_op_type": "delete", "_index": CHUNK_INDEX, "_id": hit["_id"]})
+        res = es.scroll(scroll_id=scroll_id, scroll="1m")
+        hits = res["hits"]["hits"]
+    if to_delete:
+        bulk(es, to_delete)
+
+    return {"doc_id": doc_id, "doc_is_deleted": doc_is_deleted, "num_deleted_chunks": len(to_delete)}
+
+
+class EditRequest(BaseModel):
+    file_name: str
+    edu_level: list[str]
+    campus: list[str]
+    topic_tag: list[str]
+    url: str
+    full_text: str
+    doc_source: str = ""
+
+
+@app.put("/documents/{doc_id}")
+def edit_document(doc_id: str, req: EditRequest, token: str = Header(...)):
+    """Редактировать документ: обновить метаданные и полностью пересоздать чанки"""
+    es = get_es_client(token)
+
+    try:
+        es.get(index=PARENT_INDEX, id=doc_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+
+    # Удаляем старые чанки — текст мог измениться, старые эмбеддинги не актуальны
+    query = {"query": {"term": {"doc_id": doc_id}}}
+    res = es.search(index=CHUNK_INDEX, body=query, scroll="1m", size=1000, timeout="100s")
+    scroll_id = res["_scroll_id"]
+    hits = res["hits"]["hits"]
+    to_delete = []
+    while hits:
+        for hit in hits:
+            to_delete.append({"_op_type": "delete", "_index": CHUNK_INDEX, "_id": hit["_id"]})
+        res = es.scroll(scroll_id=scroll_id, scroll="1m")
+        hits = res["hits"]["hits"]
+    if to_delete:
+        bulk(es, to_delete)
+
+    # Пересоздаём документ и чанки (created_at сохранится автоматически, updated_at обновится)
+    indexes_creation(es, doc_id, req.file_name, req.edu_level, req.campus,
+                      req.topic_tag, req.url, req.full_text, req.doc_source)
+
+    return {"doc_id": doc_id, "updated": True}
+
+
+
 
 @app.get("/")
 def health():
